@@ -74,7 +74,8 @@ body{background-image:var(--wall);background-size:1920px 1080px}
 .tile img{object-fit:contain}
 .tile svg{fill:none;stroke:var(--ink);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;opacity:.9}
 .tile .t{font-size:calc(26px*var(--fs));font-weight:600;padding:12px;text-align:center;line-height:1.15;opacity:.9}
-.tile.f{z-index:3;outline:var(--ring-w) solid var(--focus);outline-offset:var(--ring-off);box-shadow:0 24px 36px rgba(0,0,0,.6)}
+/* a box-shadow ring follows the tile's radius; outline is square before Chromium 94 */
+.tile.f{z-index:3;box-shadow:0 0 0 var(--ring-off) var(--night),0 0 0 calc(var(--ring-off) + var(--ring-w)) var(--focus),0 24px 36px rgba(0,0,0,.6)}
 #dock .tile{width:var(--dock-w);height:var(--dock-h);border-radius:var(--dock-rad)}
 #dock .tile img{height:56%;max-width:46%}
 #dock .tile svg{width:96px;height:96px}
