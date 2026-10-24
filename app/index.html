@@ -552,11 +552,7 @@ function rebuild(){
     var p=document.createElement('div');p.className='pill';p._o=o;p.innerHTML=svg(o.icon)+'<span></span>';p.lastChild.textContent=barLabel(o);
     hit(p);bar.appendChild(p);return p});
   rows=[tb,d.length?d:tb];
-  /* a last row with one or two tiles looks like a mistake: spread the tiles over the same number of rows (left-aligned grids only) */
-  var per=TH.cols,nrow=Math.ceil(g.length/per),left=g.length%per;
-  if(nrow>1&&left&&left<=Math.ceil(per/4)&&document.body.getAttribute('data-galign')!=='center')per=Math.ceil(g.length/nrow);
-  gd.style.gridTemplateColumns=per<TH.cols?'repeat('+per+',var(--tile-w))':'';
-  for(var i=0;i<g.length;i+=per)rows.push(g.slice(i,i+per));
+  for(var i=0;i<g.length;i+=TH.cols)rows.push(g.slice(i,i+TH.cols));
   var nr=Math.min(r,rows.length-1),nc=c;
   if(keep&&tiles[keep]){var p=posOf(tiles[keep]);if(p){nr=p[0];nc=p[1]}}
   setFocus(nr,nc,true)}
