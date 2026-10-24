@@ -114,6 +114,7 @@ body{background-image:var(--wall);background-size:1920px 1080px}
 #lv-stage,#lv-stage video{position:absolute;left:0;top:0;width:1920px;height:1080px;background:#000}
 #lv .layer{position:absolute;opacity:0;pointer-events:none;transition:opacity .2s linear}
 #lv .layer.on{opacity:1}
+#lv-guide.on,#lv-filter.on,#lv-menu.on{pointer-events:auto}   /* the pointer works on them while they are open */
 /* channel banner: a floating panel in the launcher's style */
 #lv-osd{left:96px;right:96px;bottom:64px;height:232px;border-radius:44px;padding:0 44px 0 36px;display:flex;align-items:center;gap:32px;
   background:rgba(12,13,17,.92);box-shadow:inset 0 0 0 1px rgba(255,255,255,.10),0 30px 60px rgba(0,0,0,.5)}
@@ -498,13 +499,16 @@ function menuKey(k){
   else return false;
   return true}
 
-/* the Magic Remote's wheel moves an open menu one row per notch; lastKey keeps the pointer from taking the selection back while the list slides under it */
+/* the Magic Remote's wheel moves an open menu one row per notch, and on the home screen it is Up and Down; lastKey keeps the pointer from
+   taking the selection back while the list slides under it. Live TV has its own wheel handling. */
 var lastWheel=0;
 document.addEventListener('wheel',function(e){
-  if(!stack.length)return;
+  if(LIVE.on||!e.deltaY)return;
   e.preventDefault();lastKey=Date.now();
-  if(lastKey-lastWheel<70||!e.deltaY)return;
-  lastWheel=lastKey;menuKey(e.deltaY>0?40:38)},{passive:false});
+  if(lastKey-lastWheel<(stack.length?70:140))return;
+  lastWheel=lastKey;
+  if(stack.length)menuKey(e.deltaY>0?40:38);
+  else document.dispatchEvent(new KeyboardEvent('keydown',{keyCode:e.deltaY>0?40:38,bubbles:true}))},{passive:false});
 
 function inputsMenu(){api('/api/inputs').then(function(x){
   var items=(x.devices||[]).filter(function(d){return d.appId}).map(function(d){
@@ -802,20 +806,22 @@ var LIVE=(function(){
     if(c.key&&S.failed[c.key])h+='<span class="bd w">!</span>';
     return h?'<div class="bds">'+h+'</div>':''}
   function filterText(){var a=[];if(F.cc)a.push(cname(F.cc));if(F.lang)a.push(F.lang);if(F.q)a.push(F.q);if(Q)a.push('“'+Q+'”');return a.join('  ·  ')}
-  function drawList(){
+  function drawList(keepWindow){
     var now=Math.floor(Date.now()/1000),names=tabNames();
     $('lv-gtitle').textContent=t('Live TV');
     var d=new Date(),tabs='';
-    if(L.g>0)tabs+='<div class="ctab m">‹</div><div class="ctab">'+lesc(names[L.g-1])+'</div>';
+    if(L.g>0)tabs+='<div class="ctab m" data-g="'+(L.g-1)+'">‹</div><div class="ctab" data-g="'+(L.g-1)+'">'+lesc(names[L.g-1])+'</div>';
     tabs+='<div class="ctab on">'+lesc(names[L.g])+'</div>';
-    if(L.g<names.length-1)tabs+='<div class="ctab">'+lesc(names[L.g+1])+'</div><div class="ctab m">›</div>';
+    if(L.g<names.length-1)tabs+='<div class="ctab" data-g="'+(L.g+1)+'">'+lesc(names[L.g+1])+'</div><div class="ctab m" data-g="'+(L.g+1)+'">›</div>';
     var ft=filterText();if(ft)tabs+='<div class="ctab f">'+lesc(t('Filters')+': '+ft)+'</div>';
     setHtml($('lv-gtabs'),tabs);
     $('lv-gclock').textContent=d.toLocaleTimeString(LOC,clockOpts());gcolor();
     var N=7,cs=Math.max(0,Math.min(L.ci-3,L.list.length-N)),h='';
+    if(keepWindow&&L.cs!==undefined)cs=Math.max(0,Math.min(L.cs,L.list.length-N));
+    L.cs=cs;
     for(var j=cs;j<Math.min(L.list.length,cs+N);j++){
       var c=L.list[j],e=epgNow[c.id],pn=e&&e.now;
-      h+='<div class="crow'+(j===L.ci?' f':'')+(c.num===cur?' cur':'')+'"><div class="n">'+c.num+'</div>'+(c.logo?'<img class="lg" src="'+lesc(c.logo)+'" alt="">':'<div class="lg"></div>')
+      h+='<div class="crow'+(j===L.ci?' f':'')+(c.num===cur?' cur':'')+'" data-j="'+j+'"><div class="n">'+c.num+'</div>'+(c.logo?'<img class="lg" src="'+lesc(c.logo)+'" alt="">':'<div class="lg"></div>')
         +'<div class="t"><div class="nm">'+lesc(c.name)+'</div><div class="nw">'+(pn?lesc(hm(pn[0])+'  '+pn[2]):(e?'':lesc(t('No guide data'))))+'</div>'
         +(pn?'<div class="pbar"><i style="width:'+pct(pn,now)+'%"></i></div>':'')+'</div>'+badges(c)+'</div>'}
     if(!L.list.length)h='<div class="empty">'+lesc(t(L.g===1&&!S.fav.length?'No favourites yet. Press the green button on a channel.':L.g===2&&!S.recent.length?'Nothing watched yet.':'No channels match.'))+'</div>';
@@ -850,7 +856,7 @@ var LIVE=(function(){
     return [{k:'cc',label:t('Country'),val:F.cc?cname(F.cc):t('All')},{k:'lang',label:t('Language'),val:F.lang||t('All')},{k:'q',label:t('Quality'),val:F.q||t('All')},{k:'clear',label:t('Clear filters'),val:''}]}
   function drawFilter(){
     var r=filterRows(),h='<h3>'+lesc(t('Filters'))+'</h3>';
-    for(var i=0;i<r.length;i++)h+='<div class="mrow'+(i===FP.i?' f':'')+'"><div class="ml">'+lesc(r[i].label)+'</div><div class="mv">'+(r[i].k==='clear'?'':'‹ ')+lesc(r[i].val)+(r[i].k==='clear'?'':' ›')+'</div></div>';
+    for(var i=0;i<r.length;i++)h+='<div class="mrow'+(i===FP.i?' f':'')+'" data-i="'+i+'"><div class="ml">'+lesc(r[i].label)+'</div><div class="mv">'+(r[i].k==='clear'?'':'‹ ')+lesc(r[i].val)+(r[i].k==='clear'?'':' ›')+'</div></div>';
     setHtml($('lv-filter'),h)}
   function stepFilter(k,d){
     var v=fvals(k),i=v.indexOf(F[k]);i=(i+d+v.length)%v.length;F[k]=v[i];relist();drawFilter()}
@@ -872,7 +878,7 @@ var LIVE=(function(){
   function drawMenu(){
     M.items=menuItems();if(M.i>=M.items.length)M.i=M.items.length-1;
     var h='<h3>'+lesc(byNum[cur].name)+'</h3>';
-    for(var i=0;i<M.items.length;i++)h+='<div class="mrow'+(i===M.i?' f':'')+'"><div class="ml">'+lesc(M.items[i].label)+'</div><div class="mv">'+lesc(M.items[i].sub)+'</div></div>';
+    for(var i=0;i<M.items.length;i++)h+='<div class="mrow'+(i===M.i?' f':'')+'" data-i="'+i+'"><div class="ml">'+lesc(M.items[i].label)+'</div><div class="mv">'+lesc(M.items[i].sub)+'</div></div>';
     setHtml($('lv-menu'),h)}
   function openMenu(){M.open=true;M.i=0;drawMenu();layer('lv-menu',true)}
   function menuKey(k){
@@ -960,6 +966,63 @@ var LIVE=(function(){
     else if(k>=48&&k<=57)digit(k-48);
     else if(k>=96&&k<=105)digit(k-96);
     else if(k===461||k===27||k===8)o.exit()};
+
+  /* ---- the pointer (Magic Remote): the same actions as the keys, on every screen ----
+     hover selects, a click opens or picks, the wheel scrolls (or zaps while watching), holding a click is the options: a channel's
+     favourite in the guide, the player menu on the picture. A click outside a panel closes it. */
+  var lvEl=$('lv'),holdP=0,heldP=false,wheelAt=0,pX=-1,pY=-1;
+  function near(ev,sel){return ev.target&&ev.target.closest?ev.target.closest(sel):null}
+  function num(el,a){return +el.getAttribute(a)}
+  lvEl.addEventListener('mousemove',function(ev){
+    if(!o.on||!loaded||searching||Date.now()-lastKey<1500)return;
+    if(pX<0){pX=ev.clientX;pY=ev.clientY;return}
+    if(Math.abs(ev.clientX-pX)+Math.abs(ev.clientY-pY)<24)return;   /* real movement only, as on the home screen */
+    pX=ev.clientX;pY=ev.clientY;
+    var el;
+    if(FP.open){el=near(ev,'#lv-filter .mrow');if(el&&num(el,'data-i')!==FP.i){FP.i=num(el,'data-i');drawFilter()}}
+    else if(M.open){el=near(ev,'#lv-menu .mrow');if(el&&num(el,'data-i')!==M.i){M.i=num(el,'data-i');drawMenu()}}
+    else if(L.open){el=near(ev,'.crow');if(el&&num(el,'data-j')!==L.ci){L.ci=num(el,'data-j');drawList(true);fetchVisible()}}
+    else showOsd()});
+  lvEl.addEventListener('mousedown',function(ev){
+    heldP=false;clearTimeout(holdP);
+    if(!o.on||!loaded||searching||FP.open||M.open)return;
+    var el=L.open?near(ev,'.crow'):null;
+    if(L.open&&!el)return;
+    holdP=setTimeout(function(){heldP=true;if(el)toggleFav(L.list[num(el,'data-j')]);else openMenu()},650)});
+  lvEl.addEventListener('mouseup',function(){clearTimeout(holdP)});
+  lvEl.addEventListener('click',function(ev){
+    if(heldP){heldP=false;return}
+    if(!o.on)return;
+    if(searching){if(ev.target.id!=='lv-search')endSearch(true);return}
+    if(!loaded)return;
+    var el;
+    if(FP.open){
+      el=near(ev,'#lv-filter .mrow');
+      if(!el){FP.open=false;layer('lv-filter',false);drawList();return}
+      FP.i=num(el,'data-i');var r=filterRows()[FP.i];
+      if(r.k==='clear'){F={cc:'',lang:'',q:''};relist();drawFilter()}else stepFilter(r.k,1);
+      return}
+    if(M.open){
+      el=near(ev,'#lv-menu .mrow');
+      if(!el){M.open=false;layer('lv-menu',false);return}
+      M.i=num(el,'data-i');M.items[M.i].fn();return}
+    if(L.open){
+      el=near(ev,'.crow');
+      if(el){var ch=L.list[num(el,'data-j')];if(ch){closeList();play(ch.num)}return}
+      el=near(ev,'.ctab');
+      if(el&&el.hasAttribute('data-g')){L.g=num(el,'data-g');L.list=listFor(L.g);L.ci=0;drawList();fetchVisible()}
+      else if(el&&el.classList.contains('f')){FP.open=true;FP.i=0;drawFilter();layer('lv-filter',true)}
+      return}
+    if(failed)play(cur);else openList()});
+  lvEl.addEventListener('wheel',function(ev){
+    if(!o.on||searching||!ev.deltaY)return;
+    ev.preventDefault();lastKey=Date.now();   /* lastKey also keeps the pointer from taking the selection back while rows slide under it */
+    var now=lastKey,d=ev.deltaY>0?1:-1;
+    if(FP.open){if(now-wheelAt<90)return;wheelAt=now;FP.i=Math.max(0,Math.min(3,FP.i+d));drawFilter();return}
+    if(M.open){if(now-wheelAt<90)return;wheelAt=now;M.i=Math.max(0,Math.min(M.items.length-1,M.i+d));drawMenu();return}
+    if(L.open){if(now-wheelAt<70)return;wheelAt=now;L.ci=Math.max(0,Math.min(L.list.length-1,L.ci+d));drawList();fetchVisible();return}
+    if(!loaded||now-wheelAt<300)return;
+    wheelAt=now;step(d>0?-1:1)},{passive:false});
   return o})();
 
 /* first paint straight from the last known layout, then refresh from the helper */
