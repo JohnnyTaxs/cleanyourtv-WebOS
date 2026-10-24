@@ -16,7 +16,7 @@ const files = fs.readdirSync(helper).filter(f => /\.js$/.test(f)).map(f => path.
 for (const f of files) { const r = cp.spawnSync(process.execPath, ['--check', f], { encoding: 'utf8' }); ok(r.status === 0, 'syntax ' + path.relative(root, f) + (r.status ? '\n' + r.stderr : '')); }
 
 // 2. modules load (helper.js starts the service, so it is only parsed above)
-for (const m of ['netcompat', 'notify', 'notifyapi', 'sharelog', 'picker', 'inputhook', 'manager', 'live', 'voice', 'theme']) { try { require(path.join(helper, m)); ok(true, 'loads ' + m); } catch (e) { ok(false, 'loads ' + m + ': ' + e.message); } }
+for (const m of ['netcompat', 'notify', 'notifyapi', 'sharelog', 'picker', 'inputhook', 'manager', 'live', 'voice', 'theme', 'wallpaper']) { try { require(path.join(helper, m)); ok(true, 'loads ' + m); } catch (e) { ok(false, 'loads ' + m + ': ' + e.message); } }
 
 const nc = require(path.join(helper, 'netcompat'));
 const call = (fn, url, method, body) => new Promise((resolve, reject) => {
@@ -349,6 +349,18 @@ const fake = (url, method) => { const res = { code: 0, out: '', writeHead(c) { t
   await new Promise(r => setTimeout(r, 1700)); pg = await getPage(pagePath); ok(pg.code === 401, 'the page stops working after its time');
   ninfo = napiMod.set({ page: true }); nconf.notifyApi.allow = ['10.0.0.0/24']; pg = await getPage('/t/' + ninfo.pageUrl.split('/t/')[1]); ok(pg.code === 403, 'the allow list applies to the page too');
   delete process.env.CYTV_NOTIFY_PAGE_MS; napiMod.set({ enabled: false });
+
+  // wallpapers: the pictures in a folder, listed in natural order and served by name only
+  const wdir = path.join(tmp, 'walls'); fs.mkdirSync(wdir);
+  for (const n of ['sfondo-10.jpg', 'sfondo-2.jpg', 'sfondo-1.jpg', 'notes.txt', 'Bad Name.jpg']) fs.writeFileSync(path.join(wdir, n), 'x');
+  const wp = require(path.join(helper, 'wallpaper')).create({ dir: wdir });
+  const wcall = (u, method) => { const f = fake(u, method); wp.handle(f.req, f.res, u); return f.res; };
+  let wr = wcall('/api/wallpaper/list');
+  ok(wr.code === 200 && JSON.parse(wr.out).files.join() === 'sfondo-1.jpg,sfondo-2.jpg,sfondo-10.jpg', 'the wallpaper list holds only valid picture names, in natural order');
+  wr = wcall('/api/wallpaper/img/sfondo-2.jpg'); ok(wr.code === 200 && String(wr.out) === 'x', 'a wallpaper is served by name');
+  ok(['/api/wallpaper/img/notes.txt', '/api/wallpaper/img/..%2F..%2Fetc%2Fpasswd', '/api/wallpaper/img/Bad%20Name.jpg', '/api/wallpaper/img/missing.jpg'].every(u => wcall(u).code === 404), 'anything but a listed picture name is refused');
+  ok(wcall('/api/wallpaper/list', 'POST').code === 404, 'the wallpaper API is read-only');
+  ok(require(path.join(helper, 'wallpaper')).create({ dir: path.join(tmp, 'nowhere') }).files().length === 0, 'a missing wallpaper folder is an empty list');
 
   console.log(failed ? '\n' + failed + ' check(s) failed on Node ' + process.version : '\nall checks passed on Node ' + process.version);
   fs.rmSync ? fs.rmSync(tmp, { recursive: true, force: true }) : cp.spawnSync('rm', ['-rf', tmp]);

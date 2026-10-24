@@ -97,6 +97,8 @@ let theme = null;
 try { theme = require('./theme').create({ readConf, writeConf, slug: () => { try { const x = fs.readFileSync(DIR + '/source', 'utf8').trim().split(/\s+/)[0]; if (/^[\w.-]+\/[\w.-]+$/.test(x)) return x; } catch (_) {} return 'lasharor/cleanyourtv-WebOS'; },
     // the branch of the themes folder: main, unless D/source names another one after the repository (only to try a theme before it is merged)
     ref: () => { try { const x = fs.readFileSync(DIR + '/source', 'utf8').trim().split(/\s+/)[1]; if (/^[\w.\/-]{1,60}$/.test(x || '')) return x; } catch (_) {} return 'main'; } }); } catch (e) { console.error('theme module failed:', e.message); }
+let wallpaper = null;
+try { wallpaper = require('./wallpaper').create({ dir: DIR + '/wallpapers' }); } catch (e) { console.error('wallpaper module failed:', e.message); }
 inputhook.setGuideKey && inputhook.setGuideKey(guideKey);
 let notifyApi = null;
 try { if (notify) notifyApi = require('./notifyapi').create({ notify, readConf, writeConf }); } catch (e) { console.error('notification api module failed:', e.message); }
@@ -124,6 +126,7 @@ http.createServer(async (req, res) => {
     if (voice && u.startsWith('/api/voice/')) return voice.handle(req, res, u, body);
     if (live && u.startsWith('/api/live/')) return live.handle(req, res, u, body);
     if (theme && u.startsWith('/api/theme/')) return theme.handle(req, res, u, body);
+    if (wallpaper && u.startsWith('/api/wallpaper/')) return wallpaper.handle(req, res, u);
     if (u === '/api/log') { const lm = decodeURIComponent(req.url.split('m=')[1] || ''); if (/picker show/.test(lm)) pickerShownAt = Date.now(); if (/picker close/.test(lm)) setTimeout(closePicker, 400); console.log(fs.readFileSync('/proc/uptime', 'utf8').split(' ')[0] + ' ' + decodeURIComponent((req.url.split('m=')[1] || '')).slice(0, 300)); return json({}); }   // small diagnostics from the overlay apps
     if (manager && u.startsWith('/api/manager/')) return manager.handle(req, res, u, body);
     if (u === '/api/frontend-ok' && req.method === 'POST') { const b = await body(req); if (manager) manager.frontendLoaded(String(b.version || '')); return json({ returnValue: true }); }
@@ -147,8 +150,14 @@ http.createServer(async (req, res) => {
         const t = { label: o.label.slice(0, 40), icon: String(o.icon || 'grid').slice(0, 20) };
         if (typeof o.action === 'string') t.action = o.action; if (typeof o.app === 'string') t.app = o.app;
         if (o.params && typeof o.params === 'object') t.params = o.params; return t; });
+      const wp = b.wallpaper;
+      if (wp && typeof wp === 'object') {
+        const f = String(wp.file || ''), dim = Number(wp.dim);
+        out.wallpaper = { mode: ['fixed', 'daily'].includes(wp.mode) ? wp.mode : 'off', file: /^[a-z0-9][a-z0-9-]{0,40}\.(jpg|png|webp)$/.test(f) ? f : '' };
+        if (dim >= 0 && dim <= 0.9) out.wallpaper.dim = Math.round(dim * 100) / 100;
+      }
       const old = readConf();   // settings the launcher does not own (options, updates source) stay as they are
-      for (const k of Object.keys(old)) if (!(k in out) && !['dock', 'hidden', 'sort', 'clock', 'topbar'].includes(k)) out[k] = old[k];
+      for (const k of Object.keys(old)) if (!(k in out) && !['dock', 'hidden', 'sort', 'clock', 'topbar', 'wallpaper'].includes(k)) out[k] = old[k];
       writeConf(out);
       return json({ returnValue: true });
     }

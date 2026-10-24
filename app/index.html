@@ -360,16 +360,35 @@ function glowSoon(e){clearTimeout(gT);gT=setTimeout(function(){glowNow(e)},110)}
 
 /* ---------- theme: the service resolves the chosen theme (manager > Theme) into CSS variables and a few numbers ---------- */
 var TH0={cols:10,tileH:151,gapY:26,gt:350,viewH:780,dockN:4,overlay:false,push:null,overlayH:510,glow:''},TH=TH0,themeKeys=[],themeAttrs=['data-bar','data-labels','data-clock','data-grid','data-galign'];
+/* the owner's own wallpapers (Customise > Wallpaper): the service lists the pictures in its wallpapers folder, cfg.wallpaper says which one
+   ({mode:'off'|'fixed'|'daily', file, dim}); it replaces the theme's wallpaper, and with 'off' the theme's shows again */
+var WALLS=null,curTheme=null;
+function wallFile(){
+  var w=cfg.wallpaper;if(!w||w.mode==='off'||!WALLS||!WALLS.length)return '';
+  if(w.mode==='daily'){var now=new Date();return WALLS[Math.floor((now.getTime()-now.getTimezoneOffset()*60000)/864e5)%WALLS.length]}
+  return WALLS.indexOf(w.file)>=0?w.file:''}
+function wallDim(){var w=cfg.wallpaper;return w&&typeof w.dim==='number'?w.dim:curTheme&&curTheme.wallpaper?curTheme.wallpaper.dim:.4}
+function applyWall(){
+  var st=document.documentElement.style,f=wallFile(),t=curTheme,night=t&&t.nightRgb||'7,8,11',d,url;
+  if(f){d='rgba('+night+','+wallDim()+')';url=API+'/api/wallpaper/img/'+encodeURIComponent(f)}
+  else if(t&&t.wallpaper){d='rgba('+night+','+t.wallpaper.dim+')';url=API+'/api/theme/wallpaper/'+t.wallpaper.id+'/'+t.wallpaper.file}
+  if(url){st.setProperty('--wall','linear-gradient('+d+','+d+'),url("'+url+'")')}else st.removeProperty('--wall')}
+function wallName(f){var n=f.replace(/\.\w+$/,'').replace(/-/g,' ');return n.charAt(0).toUpperCase()+n.slice(1)}
+function loadWalls(){
+  if(WALLS!==null)return;WALLS=[];
+  api('/api/wallpaper/list').then(function(x){WALLS=x.files||[];applyWall()}).catch(function(){WALLS=null})}
 function applyTheme(t){
   var st=document.documentElement.style,b=document.body,k;
   for(k=0;k<themeKeys.length;k++)st.removeProperty(themeKeys[k]);themeKeys=[];
   for(k=0;k<themeAttrs.length;k++)b.removeAttribute(themeAttrs[k]);b.classList.remove('grid-open');
-  if(!t||!t.vars){TH=TH0;return}
+  curTheme=t&&t.vars?t:null;
+  if(!curTheme){TH=TH0;applyWall();return}
   for(k in t.vars){st.setProperty(k,t.vars[k]);themeKeys.push(k)}
   var w=t.wallpaper;
   if(w){var d='rgba('+t.nightRgb+','+w.dim+')';st.setProperty('--wall','linear-gradient('+d+','+d+'),url("'+API+'/api/theme/wallpaper/'+w.id+'/'+w.file+'")');themeKeys.push('--wall')}
   for(k in t.attrs)b.setAttribute('data-'+k,t.attrs[k]);
-  TH={cols:t.cols||10,tileH:t.tileH||151,gapY:t.gapY||26,gt:t.gt||350,viewH:t.viewH||780,dockN:t.dockN||4,overlay:!!t.overlay,push:t.push||null,overlayH:t.overlayH||510,glow:t.glowRgb||''}}
+  TH={cols:t.cols||10,tileH:t.tileH||151,gapY:t.gapY||26,gt:t.gt||350,viewH:t.viewH||780,dockN:t.dockN||4,overlay:!!t.overlay,push:t.push||null,overlayH:t.overlayH||510,glow:t.glowRgb||''};
+  applyWall();loadWalls()}
 
 function setFocus(nr,nc,first){
   var old=rows[r]&&rows[r][c];if(old)old.classList.remove('f');
@@ -393,7 +412,7 @@ function mapCol(from,to,col){return from>1?Math.round(col*(to-1)/(from-1)):0}
 function posOf(e){for(var i=0;i<rows.length;i++){var j=rows[i].indexOf(e);if(j>=0)return [i,j]}return null}
 
 /* ---------- config (edited in the launcher, saved through the helper) ---------- */
-function saveCfg(){api('/api/config',cfg).catch(function(){toast(t('Could not save settings'))});store();rebuild()}
+function saveCfg(){api('/api/config',cfg).catch(function(){toast(t('Could not save settings'))});store();applyWall();rebuild()}
 function isHidden(id){return (cfg.hidden||[]).indexOf(id)>=0}
 function dockIds(){var by={};apps.forEach(function(a){by[a.id]=a});
   var ids=cfg.dock&&cfg.dock.length?cfg.dock:DEFAULTS.dock;
@@ -489,7 +508,20 @@ function customizeMenu(){
     {label:t('Hidden apps'),stay:true,fn:hiddenMenu},
     {label:t('App order'),sub:cfg.sort==='alpha'?t('A to Z'):t('Most used first'),fn:function(){cfg.sort=cfg.sort==='alpha'?'usage':'alpha';saveCfg()}},
     {label:t('Clock'),sub:cfg.clock==='24'?t('24-hour'):cfg.clock==='12'?t('12-hour'):t('Automatic'),fn:function(){cfg.clock=cfg.clock==='24'?'12':cfg.clock==='12'?'auto':'24';saveCfg();tick()}},
+    {label:t('Wallpaper'),sub:wallSub(),stay:true,fn:wallpaperMenu},
     {label:t('Reset customisation'),fn:function(){cfg={};saveCfg()}}])}
+function wallSub(){var w=cfg.wallpaper||{};return w.mode==='daily'?t('Different every day'):w.mode==='fixed'&&w.file?wallName(w.file):t('Theme default')}
+function wallpaperMenu(){
+  loadWalls();
+  if(!WALLS||!WALLS.length)return toast(t('No wallpapers on the TV yet'));
+  var w=cfg.wallpaper||{},dim=wallDim(),ds=[.1,.25,.4,.55,.7],nd=ds.filter(function(x){return x>dim+.02})[0]||ds[0];   // the next step up, then round to the lightest
+  function set(mode,file){cfg.wallpaper={mode:mode,file:file||w.file||'',dim:w.dim};if(w.dim===undefined)delete cfg.wallpaper.dim;saveCfg()}
+  var items=[
+    {label:t('Theme default'),sub:!w.mode||w.mode==='off'?'\u2713':'',fn:function(){set('off')}},
+    {label:t('Different every day'),sub:w.mode==='daily'?'\u2713':'',fn:function(){set('daily')}},
+    {label:t('Dimming'),sub:Math.round(dim*100)+'%',fn:function(){cfg.wallpaper={mode:w.mode||'off',file:w.file||'',dim:nd};saveCfg()}}];
+  WALLS.forEach(function(f){items.push({label:wallName(f),sub:w.mode==='fixed'&&w.file===f?'\u2713':'',fn:function(){set('fixed',f)}})});
+  openMenu(t('Wallpaper'),items)}
 function topButtonsMenu(){
   var items=shownBar().map(function(o){return {label:barLabel(o),sub:t('OK to remove'),fn:function(){removeButton(o)}}});
   items.push({label:t('Add a button...'),stay:true,fn:addButtonMenu});

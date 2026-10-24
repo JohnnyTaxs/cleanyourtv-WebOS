@@ -37,9 +37,18 @@ The Magic Remote pointer works too: pointing and clicking, and holding the butto
 - **hidden apps** (show them again),
 - the **app order** (most used first, or A to Z),
 - the **clock** format (automatic, 12 or 24 hour),
+- the **wallpaper** (see below),
 - **Reset customisation**.
 
 The dock holds up to four apps. Hold OK on an app and choose **Add to dock**, **Move left**, **Move right** or **Remove from dock**.
+
+## Wallpaper
+
+**Customise > Wallpaper** shows your own pictures behind the home screen, on top of any theme. Put `.jpg`, `.png` or `.webp` files
+(1920 x 1080, up to 3 MB each) in `/media/developer/cleanyourtv/wallpapers/` on the TV. File names use lower-case letters, digits and
+`-` (`sunset-1.jpg`); other names are ignored. The menu lists them; choose one, **Different every day** to go through them in name order,
+or **Theme default** to show the theme's own wallpaper again. **Dimming** darkens the picture so the tiles stay readable. The menu
+says so when the folder is empty. **Reset customisation** also clears the choice; the pictures stay.
 
 ## Inputs
 
