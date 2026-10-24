@@ -638,11 +638,19 @@ document.addEventListener('keyup',function(e){
 /* launching Home with {inputs:true} opens the Inputs list */
 function wantInputs(){var p={};try{p=JSON.parse(webOSSystem.launchParams||'{}')}catch(e){}
   if(p&&p.inputs){closeMenus();inputsMenu()}
-  else if(p&&p.live&&liveOn()){closeMenus();LIVE.enter(!!p.guide)}}
+  else if(p&&p.live&&liveOn()){closeMenus();liveLaunchAt=Date.now();LIVE.enter(!!p.guide)}}
+/* Launching Home while it is in front (the Guide key) makes the TV hide its window for about a second and then relaunch it with plain
+   {keepAlive:true}: neither may close the Live TV that the launch has just opened. Leaving for another app later still does. */
+var liveLaunchAt=0;
+function liveJustLaunched(){return Date.now()-liveLaunchAt<5000}
 document.addEventListener('webOSRelaunch',function(){var p={};try{p=JSON.parse(webOSSystem.launchParams||'{}')}catch(e){}
   if(LIVE.on&&p&&p.guide&&liveOn()){LIVE.toggleGuide();return}   /* the Guide button while Live TV is open */
+  if(LIVE.on&&liveJustLaunched()&&!(p&&(p.live||p.inputs)))return;
   if(LIVE.on)LIVE.exit();load();wantInputs()});
-document.addEventListener('visibilitychange',function(){if(document.hidden){if(LIVE.on)LIVE.exit()}else load()});
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){if(LIVE.on&&!liveJustLaunched())LIVE.exit()}
+  else if(LIVE.on&&liveJustLaunched())LIVE.resume();
+  else load()});
 
 function tick(){var d=new Date();
   try{$('time').textContent=d.toLocaleTimeString(LOC,clockOpts());$('date').textContent=d.toLocaleDateString(LOC,{weekday:'long',day:'numeric',month:'long'})}
@@ -903,6 +911,7 @@ var LIVE=(function(){
   function step(d){var i=chans.indexOf(byNum[cur]);i=(i+d+chans.length)%chans.length;play(chans[i].num,false,180)}
   var guideNext=false;
   o.enter=function(guide){o.on=true;guideNext=!!guide;$('lv').classList.add('on');if(loaded&&byNum[cur]){play(cur);if(guideNext){guideNext=false;openList()}}else boot()};
+  o.resume=function(){if(video&&video.paused&&!pend){try{var pr=video.play();if(pr&&pr.catch)pr.catch(function(){})}catch(e){}}};   // the window came back after the TV hid it
   o.toggleGuide=function(){if(!loaded)return;if(L.open)closeList();else{M.open=false;layer('lv-menu',false);openList()}};
   o.exit=function(){o.on=false;closeList();M.open=false;layer('lv-menu',false);setStats(false);full={};release();clearTimeout(osdT);clearTimeout(numT);clearTimeout(toastT);clearInterval(setupT);layer('lv-osd',false);layer('lv-numin',false);layer('lv-msg',false);layer('lv-spin',false);layer('lv-tune',false);layer('lv-toast',false);$('lv').classList.remove('on')};
   o.key=function(e){
