@@ -498,6 +498,14 @@ function menuKey(k){
   else return false;
   return true}
 
+/* the Magic Remote's wheel moves an open menu one row per notch; lastKey keeps the pointer from taking the selection back while the list slides under it */
+var lastWheel=0;
+document.addEventListener('wheel',function(e){
+  if(!stack.length)return;
+  e.preventDefault();lastKey=Date.now();
+  if(lastKey-lastWheel<70||!e.deltaY)return;
+  lastWheel=lastKey;menuKey(e.deltaY>0?40:38)},{passive:false});
+
 function inputsMenu(){api('/api/inputs').then(function(x){
   var items=(x.devices||[]).filter(function(d){return d.appId}).map(function(d){
     var port='HDMI '+d.port,named=d.label&&d.label!==port&&d.label!==('HDMI '+d.port),parts=[];
