@@ -350,6 +350,15 @@ const fake = (url, method) => { const res = { code: 0, out: '', writeHead(c) { t
   ninfo = napiMod.set({ page: true }); nconf.notifyApi.allow = ['10.0.0.0/24']; pg = await getPage('/t/' + ninfo.pageUrl.split('/t/')[1]); ok(pg.code === 403, 'the allow list applies to the page too');
   delete process.env.CYTV_NOTIFY_PAGE_MS; napiMod.set({ enabled: false });
 
+  // 16. Pages: flex "gap" is ignored before Chromium 84, and a script that added the spacing after a redraw made lists jump and left old text on webOS 5 (issues 4, 8): flex children are spaced with sibling margins
+  const pageFiles = ['app', 'manager/app', 'picker/app', 'notify/app'].map(d => path.join(root, d, 'index.html'));
+  const gapBad = [];
+  for (const f of pageFiles) { const t = fs.readFileSync(f, 'utf8'); const re = /([^{}]+)\{([^{}]*)\}/g; let m; while ((m = re.exec(t))) { if (/display:\s*(inline-)?flex/.test(m[2]) && /(^|[;\s])(row-|column-)?gap:/.test(m[2])) gapBad.push(path.relative(root, f) + ': ' + m[1].trim().split('\n').pop().slice(0, 50)); } }
+  ok(!gapBad.length, 'no flex container uses gap (it is a sibling margin instead)' + (gapBad.length ? ':\n  ' + gapBad.join('\n  ') : ''));
+  ok(!fs.existsSync(path.join(root, 'shared', 'flexgap.js')) && !/flexgap/.test(fs.readFileSync(path.join(root, 'ipk', 'build.py'), 'utf8')), 'no script adds the spacing after a redraw');
+  const lhtml = fs.readFileSync(path.join(root, 'app', 'index.html'), 'utf8');
+  ok(!/\.tile\.f\{[^}]*outline/.test(lhtml) && /\.tile\.f::before\{[^}]*border-radius:/.test(lhtml) && /\.tile\.fill\.f\{box-shadow:0 0 0 var\(--ring-w\)/.test(lhtml), 'the focus ring has its own rounded corners (an outline is a rectangle before Chromium 94), also on tiles that crop their picture');
+
   console.log(failed ? '\n' + failed + ' check(s) failed on Node ' + process.version : '\nall checks passed on Node ' + process.version);
   fs.rmSync ? fs.rmSync(tmp, { recursive: true, force: true }) : cp.spawnSync('rm', ['-rf', tmp]);
   process.exit(failed ? 1 : 0);
