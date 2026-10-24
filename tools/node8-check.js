@@ -350,6 +350,19 @@ const fake = (url, method) => { const res = { code: 0, out: '', writeHead(c) { t
   ninfo = napiMod.set({ page: true }); nconf.notifyApi.allow = ['10.0.0.0/24']; pg = await getPage('/t/' + ninfo.pageUrl.split('/t/')[1]); ok(pg.code === 403, 'the allow list applies to the page too');
   delete process.env.CYTV_NOTIFY_PAGE_MS; napiMod.set({ enabled: false });
 
+  // the guide: Tunarr's layout (everything on one line, start/stop/channel order, text cut between chunks) and a programme per line (channel first)
+  const xt = m => new Date(Date.now() + m * 60000).toISOString().replace(/[-:T]/g, '').slice(0, 14) + ' +0000';
+  const feed = text => { const pt = new (require('stream').PassThrough)(), b = Buffer.from(text, 'utf8'); for (let i = 0; i < b.length; i += 7) pt.write(b.slice(i, i + 7)); pt.end(); return pt; };
+  const oneLine = '<?xml version="1.0"?><tv><channel id="A.tv"><display-name>A</display-name></channel>'
+    + '<programme start="' + xt(-30) + '" stop="' + xt(30) + '" channel="A.tv"><title>Café &amp; Co</title><desc>It&#39;s\nthe news</desc></programme>'
+    + '<programme start="' + xt(30) + '" stop="' + xt(90) + '" channel="A.tv"><title lang="en">Next</title></programme>'
+    + '<programme start="' + xt(-30) + '" stop="' + xt(30) + '" channel="OTHER"><title>Skip</title></programme>'
+    + '<programme start="' + xt(-9000) + '" stop="' + xt(-8000) + '" channel="A.tv"><title>Old</title></programme></tv>';
+  let eg = await live.parseEpg(feed(oneLine), ['A.tv']), pa = eg.byId['A.tv'] || [];
+  ok(eg.count === 2 && pa[0][2] === 'Café & Co' && pa[0][3] === 'It\'s\nthe news' && pa[1][2] === 'Next' && !eg.byId.OTHER, 'a guide on one line, with start/stop/channel order, is read (other channels and old programmes left out)');
+  eg = await live.parseEpg(feed('<tv>\n<programme channel="B.tv" start="' + xt(-5) + '" stop="' + xt(55) + '">\n<title>One</title>\n</programme>\n<programme channel="B.tv" start="' + xt(55) + '" stop="' + xt(60) + '"/>\n</tv>\n'), ['B.tv']);
+  ok(eg.count === 1 && eg.byId['B.tv'][0][2] === 'One', 'a guide with a programme per line and channel first is read, an empty programme is skipped');
+
   // wallpapers: the pictures in a folder, listed in natural order and served by name only
   const wdir = path.join(tmp, 'walls'); fs.mkdirSync(wdir);
   for (const n of ['sfondo-10.jpg', 'sfondo-2.jpg', 'sfondo-1.jpg', 'notes.txt', 'Bad Name.jpg']) fs.writeFileSync(path.join(wdir, n), 'x');

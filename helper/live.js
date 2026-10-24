@@ -153,33 +153,44 @@ function xmltvTime(s) {
   if (m[7]) { const sign = m[7][0] === '-' ? -1 : 1; t -= sign * (+m[7].slice(1, 3) * 60 + +m[7].slice(3, 5)) * 60000; }
   return Math.floor(t / 1000);
 }
-async function loadEpg(url, wantedIds) {
-  const stream = await get(url), want = new Set(wantedIds), byId = {};
+// The guide is cut into <programme>...</programme> blocks wherever they are in the stream: generators differ in their line breaks (Tunarr sends
+// the whole file on a few lines, with newlines inside descriptions) and in the order of the attributes (XMLTV's own order is start, stop, channel).
+const attrOf = (tag, name) => { const m = tag.match(new RegExp('(?:^|\\s)' + name + '="([^"]*)"')); return m ? m[1] : ''; };
+const textOf = (block, name) => { const m = block.match(new RegExp('<' + name + '(?:\\s[^>]*)?>([\\s\\S]*?)</' + name + '>')); return m ? decode(m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim() : ''; };
+const decodeNumeric = s => s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d));
+function parseEpg(stream, wantedIds) {
+  const want = new Set(wantedIds), byId = {};
   const now = Math.floor(Date.now() / 1000), from = now - 3600, to = now + 36 * 3600;
-  let buf = '', cur = null, count = 0;
-  const handle = line => {
-    let m;
-    if ((m = line.match(/<programme\b[^>]*\bchannel="([^"]*)"[^>]*\bstart="([^"]*)"[^>]*\bstop="([^"]*)"/))) cur = want.has(m[1]) ? { id: m[1], s: xmltvTime(m[2]), e: xmltvTime(m[3]), t: '', d: '' } : null;
-    else if (cur && !cur.t && (m = line.match(/<title[^>]*>([^<]*)<\/title>/))) cur.t = decode(m[1]);
-    else if (cur && !cur.d && (m = line.match(/<desc[^>]*>([^<]*)<\/desc>/))) cur.d = decode(m[1]).slice(0, 220);
-    if (cur && line.includes('</programme>')) {
-      if (cur.e > from && cur.s < to && !/^no data$/i.test(cur.t.trim())) { (byId[cur.id] = byId[cur.id] || []).push(cur.d ? [cur.s, cur.e, cur.t, cur.d] : [cur.s, cur.e, cur.t]); count++; }
-      cur = null;
+  let buf = '', count = 0;
+  const handle = block => {
+    const open = block.slice(0, block.indexOf('>') + 1), id = attrOf(open, 'channel');
+    if (!want.has(id)) return;
+    const s = xmltvTime(attrOf(open, 'start')), e = xmltvTime(attrOf(open, 'stop')), t = decodeNumeric(textOf(block, 'title'));
+    if (!(e > from && s < to) || !t || /^no data$/i.test(t)) return;
+    const d = decodeNumeric(textOf(block, 'desc')).slice(0, 220);
+    (byId[id] = byId[id] || []).push(d ? [s, e, t, d] : [s, e, t]); count++;
+  };
+  const drain = () => {
+    for (;;) {
+      const a = buf.indexOf('<programme');
+      if (a < 0) { buf = buf.slice(-10); return; }   // the header and channel list are not kept (a tag cut in two stays in the last characters)
+      const te = buf.indexOf('>', a);
+      if (te < 0) { buf = buf.slice(a); return; }
+      if (buf.charAt(te - 1) === '/') { buf = buf.slice(te + 1); continue; }   // <programme ... /> has no content
+      const b = buf.indexOf('</programme>', te);
+      if (b < 0) { buf = buf.slice(a); return; }
+      handle(buf.slice(a, b)); buf = buf.slice(b + 12);
     }
   };
-  await new Promise((resolve, reject) => {
-    let n = 0;
-    stream.on('data', chunk => {
-      buf += chunk; let i;
-      while ((i = buf.indexOf('\n')) >= 0) { handle(buf.slice(0, i)); buf = buf.slice(i + 1); }
-      if (++n % 40 === 0) { stream.pause(); setImmediate(() => stream.resume()); }   // leave CPU for the UI
-    });
-    let ended = false; stream.on('end', () => { ended = true; resolve(); }); stream.on('error', reject);
+  return new Promise((resolve, reject) => {
+    let n = 0, ended = false;
+    stream.setEncoding('utf8');   // a character cut between two chunks is kept whole
+    stream.on('data', chunk => { buf += chunk; drain(); if (++n % 40 === 0) { stream.pause(); setImmediate(() => stream.resume()); } });   // leave CPU for the UI
+    stream.on('end', () => { ended = true; resolve(); }); stream.on('error', reject);
     stream.on('aborted', () => reject(new Error('the connection was lost'))); stream.on('close', () => { if (!ended) reject(new Error('the connection was closed')); });
-  });
-  for (const id in byId) byId[id].sort((a, b) => a[0] - b[0]);
-  return { v: 3, fetchedAt: Date.now(), count, byId };
+  }).then(() => { for (const id in byId) byId[id].sort((a, b) => a[0] - b[0]); return { v: 4, fetchedAt: Date.now(), count, byId }; });
 }
+const loadEpg = async (url, wantedIds) => parseEpg(await get(url), wantedIds);
 
 let refreshing = false;
 async function refresh(force) {
@@ -193,7 +204,7 @@ async function refresh(force) {
     }
     status = { state: 'idle', error: '' };
     const epgUrl = settings.epgUrl || playlist.epgUrl;
-    if (epgUrl && (force || !epg || epg.v !== 3 || Date.now() - epg.fetchedAt > REFRESH_MS)) {
+    if (epgUrl && (force || !epg || epg.v !== 4 || Date.now() - epg.fetchedAt > REFRESH_MS)) {
       status = { state: 'loading guide', error: '' };
       try { epg = await loadEpg(epgUrl, playlist.channels.map(c => c.id).filter(Boolean)); writeJson(EPG, epg); }
       catch (e) { status = { state: 'idle', error: 'guide: ' + e.message }; }
@@ -293,4 +304,4 @@ async function handle(req, res, u, body) {
 if (settings.playlistUrl) setTimeout(() => refresh(false), 20000);
 setInterval(() => refresh(false), 6 * 3600 * 1000).unref();
 
-module.exports = { handle, parseM3U, probe };
+module.exports = { handle, parseM3U, parseEpg, probe };
