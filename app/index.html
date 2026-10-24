@@ -354,9 +354,12 @@ var TH0={cols:10,tileH:151,gapY:26,gt:350,viewH:780,dockN:4,overlay:false,push:n
 /* the owner's own wallpapers (Customise > Wallpaper): the service lists the pictures in its wallpapers folder, cfg.wallpaper says which one
    ({mode:'off'|'fixed'|'daily', file, dim}); it replaces the theme's wallpaper, and with 'off' the theme's shows again */
 var WALLS=null,curTheme=null;
+var WALL_STEPS=[[1,'Every hour'],[3,'Every 3 hours'],[6,'Every 6 hours'],[12,'Every 12 hours'],[24,'Every day'],[168,'Every week']];
+function wallHours(w){return w.mode==='daily'?24:w.every||24}   // 'daily' is what the first version saved
 function wallFile(){
   var w=cfg.wallpaper;if(!w||w.mode==='off'||!WALLS||!WALLS.length)return '';
-  if(w.mode==='daily'){var now=new Date();return WALLS[Math.floor((now.getTime()-now.getTimezoneOffset()*60000)/864e5)%WALLS.length]}
+  if(w.mode==='cycle'||w.mode==='daily'){var now=new Date();   // the pictures in name order, one per step; local time, so a day starts at midnight
+    return WALLS[Math.floor((now.getTime()-now.getTimezoneOffset()*60000)/(wallHours(w)*36e5))%WALLS.length]}
   return WALLS.indexOf(w.file)>=0?w.file:''}
 function wallDim(){var w=cfg.wallpaper;return w&&typeof w.dim==='number'?w.dim:curTheme&&curTheme.wallpaper?curTheme.wallpaper.dim:.4}
 function applyWall(){
@@ -365,6 +368,7 @@ function applyWall(){
   else if(t&&t.wallpaper){d='rgba('+night+','+t.wallpaper.dim+')';url=API+'/api/theme/wallpaper/'+t.wallpaper.id+'/'+t.wallpaper.file}
   if(url){st.setProperty('--wall','linear-gradient('+d+','+d+'),url("'+url+'")')}else st.removeProperty('--wall')}
 function wallName(f){var n=f.replace(/\.\w+$/,'').replace(/-/g,' ');return n.charAt(0).toUpperCase()+n.slice(1)}
+setInterval(applyWall,60000);   // a change of step while Home stays open
 function loadWalls(){
   if(WALLS!==null)return;WALLS=[];
   api('/api/wallpaper/list').then(function(x){WALLS=x.files||[];applyWall()}).catch(function(){WALLS=null})}
@@ -501,17 +505,19 @@ function customizeMenu(){
     {label:t('Clock'),sub:cfg.clock==='24'?t('24-hour'):cfg.clock==='12'?t('12-hour'):t('Automatic'),fn:function(){cfg.clock=cfg.clock==='24'?'12':cfg.clock==='12'?'auto':'24';saveCfg();tick()}},
     {label:t('Wallpaper'),sub:wallSub(),stay:true,fn:wallpaperMenu},
     {label:t('Reset customisation'),fn:function(){cfg={};saveCfg()}}])}
-function wallSub(){var w=cfg.wallpaper||{};return w.mode==='daily'?t('Different every day'):w.mode==='fixed'&&w.file?wallName(w.file):t('Theme default')}
+function wallStepLabel(w){var h=wallHours(w);for(var i=0;i<WALL_STEPS.length;i++)if(WALL_STEPS[i][0]===h)return t(WALL_STEPS[i][1]);return ''}
+function wallSub(){var w=cfg.wallpaper||{};return w.mode==='cycle'||w.mode==='daily'?wallStepLabel(w):w.mode==='fixed'&&w.file?wallName(w.file):t('Theme default')}
 function wallpaperMenu(){
   loadWalls();
   if(!WALLS||!WALLS.length)return toast(t('No wallpapers on the TV yet'));
-  var w=cfg.wallpaper||{},dim=wallDim(),ds=[.1,.25,.4,.55,.7],nd=ds.filter(function(x){return x>dim+.02})[0]||ds[0];   // the next step up, then round to the lightest
-  function set(mode,file){cfg.wallpaper={mode:mode,file:file||w.file||'',dim:w.dim};if(w.dim===undefined)delete cfg.wallpaper.dim;saveCfg()}
+  var w=cfg.wallpaper||{},dim=wallDim(),ds=[.1,.25,.4,.55,.7],nd=ds.filter(function(x){return x>dim+.02})[0]||ds[0],cyc=w.mode==='cycle'||w.mode==='daily';   // dimming: the next step up, then round to the lightest
+  function set(p){var n={mode:w.mode||'off',file:w.file||''},k;if(w.dim!==undefined)n.dim=w.dim;if(w.every)n.every=w.every;for(k in p)n[k]=p[k];cfg.wallpaper=n;saveCfg()}
   var items=[
-    {label:t('Theme default'),sub:!w.mode||w.mode==='off'?'\u2713':'',fn:function(){set('off')}},
-    {label:t('Different every day'),sub:w.mode==='daily'?'\u2713':'',fn:function(){set('daily')}},
-    {label:t('Dimming'),sub:Math.round(dim*100)+'%',fn:function(){cfg.wallpaper={mode:w.mode||'off',file:w.file||'',dim:nd};saveCfg()}}];
-  WALLS.forEach(function(f){items.push({label:wallName(f),sub:w.mode==='fixed'&&w.file===f?'\u2713':'',fn:function(){set('fixed',f)}})});
+    {label:t('Theme default'),sub:!w.mode||w.mode==='off'?'\u2713':'',fn:function(){set({mode:'off'})}},
+    {label:t('Change automatically'),sub:cyc?wallStepLabel(w):'',stay:true,fn:function(){
+      openMenu(t('Change wallpaper'),WALL_STEPS.map(function(s){return {label:t(s[1]),sub:cyc&&wallHours(w)===s[0]?'\u2713':'',fn:function(){set({mode:'cycle',every:s[0]})}}}))}},
+    {label:t('Dimming'),sub:Math.round(dim*100)+'%',fn:function(){set({dim:nd})}}];
+  WALLS.forEach(function(f){items.push({label:wallName(f),sub:w.mode==='fixed'&&w.file===f?'\u2713':'',fn:function(){set({mode:'fixed',file:f})}})});
   openMenu(t('Wallpaper'),items)}
 function topButtonsMenu(){
   var items=shownBar().map(function(o){return {label:barLabel(o),sub:t('OK to remove'),fn:function(){removeButton(o)}}});

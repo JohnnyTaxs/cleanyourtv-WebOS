@@ -46,8 +46,9 @@ The dock holds up to four apps. Hold OK on an app and choose **Add to dock**, **
 
 **Customise > Wallpaper** shows your own pictures behind the home screen, on top of any theme. Put `.jpg`, `.png` or `.webp` files
 (1920 x 1080, up to 3 MB each) in `/media/developer/cleanyourtv/wallpapers/` on the TV. File names use lower-case letters, digits and
-`-` (`sunset-1.jpg`); other names are ignored. The menu lists them; choose one, **Different every day** to go through them in name order,
-or **Theme default** to show the theme's own wallpaper again. **Dimming** darkens the picture so the tiles stay readable. The menu
+`-` (`sunset-1.jpg`); other names are ignored. The menu lists them; choose one, **Change automatically** to go through them in name order, one for
+each step (every hour, 3, 6 or 12 hours, every day or every week; local time, a day starts at midnight), or **Theme default** to show
+the theme's own wallpaper again. **Dimming** darkens the picture so the tiles stay readable. The menu
 says so when the folder is empty. **Reset customisation** also clears the choice; the pictures stay.
 
 ## Inputs

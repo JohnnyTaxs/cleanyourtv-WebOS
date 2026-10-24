@@ -153,8 +153,9 @@ http.createServer(async (req, res) => {
       const wp = b.wallpaper;
       if (wp && typeof wp === 'object') {
         const f = String(wp.file || ''), dim = Number(wp.dim);
-        out.wallpaper = { mode: ['fixed', 'daily'].includes(wp.mode) ? wp.mode : 'off', file: /^[a-z0-9][a-z0-9-]{0,40}\.(jpg|png|webp)$/.test(f) ? f : '' };
+        out.wallpaper = { mode: ['fixed', 'cycle', 'daily'].includes(wp.mode) ? wp.mode : 'off', file: /^[a-z0-9][a-z0-9-]{0,40}\.(jpg|png|webp)$/.test(f) ? f : '' };
         if (dim >= 0 && dim <= 0.9) out.wallpaper.dim = Math.round(dim * 100) / 100;
+        if ([1, 3, 6, 12, 24, 168].includes(Number(wp.every))) out.wallpaper.every = Number(wp.every);   // hours between pictures in 'cycle' mode
       }
       const old = readConf();   // settings the launcher does not own (options, updates source) stay as they are
       for (const k of Object.keys(old)) if (!(k in out) && !['dock', 'hidden', 'sort', 'clock', 'topbar', 'wallpaper'].includes(k)) out[k] = old[k];
