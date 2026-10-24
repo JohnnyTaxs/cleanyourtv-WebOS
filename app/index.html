@@ -104,6 +104,9 @@ body{background-image:var(--wall);background-size:1920px 1080px}
 .row.dim{opacity:.6}
 .row.f{background:var(--acc);color:var(--acc-ink);opacity:1}
 .more{height:22px;text-align:center;font-size:20px;color:var(--ink2)}
+.vp{overflow:hidden;flex:none}
+.rows{display:flex;flex-direction:column;gap:12px;transition:transform .1s linear;will-change:transform}
+.snap .rows{transition:none}
 
 /* Live TV (inside the launcher) */
 #lv{--ink2:rgba(245,246,248,.76);position:absolute;left:0;top:0;width:1920px;height:1080px;z-index:60;background:#000;display:none}
@@ -454,23 +457,37 @@ function setHtml(el,h){
   if(!OLDGPU||!el.parentNode){el.innerHTML=h;return el}
   var n=el.cloneNode(false);n.innerHTML=h;el.parentNode.replaceChild(n,el);return n}
 function openMenu(title,items){stack.push({title:title,items:items,idx:0});drawMenu()}
-function closeMenus(){stack=[];if(ovEl){ovEl.remove();ovEl=null}}
+function closeMenus(){stack=[];ovFor=null;if(ovEl){ovEl.remove();ovEl=null}}
 function backMenu(){stack.pop();if(stack.length)drawMenu();else closeMenus()}
+/* A menu is built once; moving the selection only changes a class and slides the list (transform), so the rows do not hop or redraw.
+   The pointer follows real movement only, like on the home screen. */
+var ovFor=null;
 function drawMenu(){
-  var m=stack[stack.length-1],N=8,start=Math.max(0,Math.min(m.idx-3,m.items.length-N));
-  if(!ovEl){ovEl=document.createElement('div');ovEl.id='ov';document.body.appendChild(ovEl)}
-  var h='<div class="panel"><h2></h2><div class="more">'+(start>0?'▲':'')+'</div>';
-  for(var i=start;i<Math.min(m.items.length,start+N);i++){
-    var it=m.items[i];
-    h+='<div class="row'+(i===m.idx?' f':'')+(it.dim?' dim':'')+'" data-i="'+i+'">'+(it.icon?svg(it.icon):'')+'<span class="lb"></span>'+(it.sub?'<span class="st"></span>':'')+'</div>'}
-  h+='<div class="more">'+(start+N<m.items.length?'▼':'')+'</div></div>';
-  ovEl=setHtml(ovEl,h);
-  ovEl.querySelector('h2').textContent=m.title;
-  [].forEach.call(ovEl.querySelectorAll('.row'),function(row){
-    var it=m.items[+row.getAttribute('data-i')];
-    row.querySelector('.lb').textContent=it.label;
-    if(it.sub)row.querySelector('.st').textContent=it.sub;
-    row.addEventListener('click',function(){m.idx=+row.getAttribute('data-i');pickMenu()})})}
+  var m=stack[stack.length-1],N=8,len=m.items.length,vis=Math.min(len,N),start=Math.max(0,Math.min(m.idx-3,len-N)),rowsEl;
+  if(!ovEl||ovFor!==m||OLDGPU){
+    if(!ovEl){ovEl=document.createElement('div');ovEl.id='ov';document.body.appendChild(ovEl)}
+    var h='<div class="panel"><h2></h2><div class="more up"></div><div class="vp" style="height:'+(vis*84+(vis-1)*12)+'px"><div class="rows">';
+    for(var i=0;i<len;i++){
+      var it=m.items[i];
+      h+='<div class="row'+(it.dim?' dim':'')+'" data-i="'+i+'">'+(it.icon?svg(it.icon):'')+'<span class="lb"></span>'+(it.sub?'<span class="st"></span>':'')+'</div>'}
+    h+='</div></div><div class="more dn"></div></div>';
+    ovEl=setHtml(ovEl,h);ovFor=m;
+    ovEl.querySelector('h2').textContent=m.title;
+    [].forEach.call(ovEl.querySelectorAll('.row'),function(row){
+      var k=+row.getAttribute('data-i'),it=m.items[k];
+      row.querySelector('.lb').textContent=it.label;
+      if(it.sub)row.querySelector('.st').textContent=it.sub;
+      row.addEventListener('click',function(){m.idx=k;pickMenu()});
+      row.addEventListener('mousemove',function(ev){
+        if(m.idx===k||Date.now()-lastKey<1500)return;
+        if(lastMX>=0&&Math.abs(ev.clientX-lastMX)+Math.abs(ev.clientY-lastMY)<24)return;
+        lastMX=ev.clientX;lastMY=ev.clientY;m.idx=k;drawMenu()})});
+    rowsEl=ovEl.querySelector('.rows');rowsEl.style.transition='none';rowsEl.style.transform='translateY('+(-start*96)+'px)';rowsEl.offsetHeight;rowsEl.style.transition=''}
+  rowsEl=ovEl.querySelector('.rows');
+  [].forEach.call(ovEl.querySelectorAll('.row'),function(row,k){row.classList.toggle('f',k===m.idx)});
+  rowsEl.style.transform='translateY('+(-start*96)+'px)';
+  ovEl.querySelector('.up').textContent=start>0?'▲':'';
+  ovEl.querySelector('.dn').textContent=start+N<len?'▼':''}
 function pickMenu(){var m=stack[stack.length-1],it=m.items[m.idx];if(it&&it.fn){var n=stack.length;it.fn();if(stack.length===n&&!it.stay)closeMenus()}}
 function menuKey(k){
   var m=stack[stack.length-1];
