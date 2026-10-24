@@ -463,8 +463,10 @@ function backMenu(){stack.pop();if(stack.length)drawMenu();else closeMenus()}
 /* A menu is built once; moving the selection only changes a class and slides the list (transform), so the rows do not hop or redraw.
    The pointer follows real movement only, like on the home screen. */
 var ovFor=null;
-function drawMenu(){
+function drawMenu(win){   // win: the first visible row, when the pointer asks for a window (otherwise the selection sits on the fourth row)
   var m=stack[stack.length-1],N=8,len=m.items.length,vis=Math.min(len,N),start=Math.max(0,Math.min(m.idx-3,len-N)),rowsEl;
+  if(typeof win==='number')start=Math.max(0,Math.min(win,len-N));
+  m.start=start;
   if(!ovEl||ovFor!==m||OLDGPU){
     if(!ovEl){ovEl=document.createElement('div');ovEl.id='ov';document.body.appendChild(ovEl)}
     var h='<div class="panel"><h2></h2><div class="more up"></div><div class="vp" style="height:'+(vis*84+(vis-1)*12)+'px"><div class="rows">';
@@ -482,7 +484,13 @@ function drawMenu(){
       row.addEventListener('mousemove',function(ev){
         if(m.idx===k||Date.now()-lastKey<1500)return;
         if(lastMX>=0&&Math.abs(ev.clientX-lastMX)+Math.abs(ev.clientY-lastMY)<24)return;
-        lastMX=ev.clientX;lastMY=ev.clientY;m.idx=k;drawMenu()})});
+        lastMX=ev.clientX;lastMY=ev.clientY;
+        /* hovering never moves the list, except on the last (or first) visible row, where it scrolls one row, at most about three times a second */
+        var s0=m.start||0,dir=0,now=Date.now();
+        if(k===s0+N-1&&s0+N<len)dir=1;else if(k===s0&&s0>0)dir=-1;
+        if(dir&&now-(m.scrollAt||0)<350)dir=0;
+        if(dir)m.scrollAt=now;
+        m.idx=k;drawMenu(s0+dir)})});
     rowsEl=ovEl.querySelector('.rows');rowsEl.style.transition='none';rowsEl.style.transform='translateY('+(-start*96)+'px)';rowsEl.offsetHeight;rowsEl.style.transition=''}
   rowsEl=ovEl.querySelector('.rows');
   [].forEach.call(ovEl.querySelectorAll('.row'),function(row,k){row.classList.toggle('f',k===m.idx)});
