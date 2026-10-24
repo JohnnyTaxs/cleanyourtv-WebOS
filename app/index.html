@@ -192,7 +192,7 @@ svg.st{width:26px;height:26px;fill:#ffcc4d;flex:none}.crow.f svg.st{fill:#c98a00
 <div id="lv"><div id="lv-stage"></div><div id="lv-spin" class="layer"></div><div id="lv-osd" class="layer"><img class="logo" id="lv-ologo" alt=""><div class="num" id="lv-onum"></div><div class="info"><div class="name" id="lv-oname"></div><div class="now" id="lv-onow"></div><div class="next" id="lv-onext"></div><div class="facts" id="lv-ofacts"></div><div class="pbar"><i id="lv-obar"></i></div></div></div><div id="lv-numin" class="layer"></div><div id="lv-guide" class="layer"><div id="lv-glow"></div><div id="lv-gtop"><div id="lv-gtitle"></div><div id="lv-gtabs"></div><input id="lv-search" type="text" autocomplete="off"><div id="lv-gclock"></div></div><div id="lv-rows"></div><div id="lv-detail"></div></div><div id="lv-filter" class="layer"></div><div id="lv-menu" class="layer"></div><div id="lv-msg" class="layer"></div><div id="lv-tune" class="layer"></div><div id="lv-toast" class="layer"></div><div id="lv-stats" class="layer"></div></div>
 <div id="toast"></div>
 <script>
-var API='http://127.0.0.1:8765', CACHE_KEY='cytv.cache.v6', VERSION='1.4.15';
+var API='http://127.0.0.1:8765', CACHE_KEY='cytv.cache.v5', VERSION='1.4.15';
 var DEFAULTS={
   dock:['netflix','youtube.leanback.v4','amazon','com.disney.disneyplus-prod'],
   topbar:[{label:'Inputs',icon:'inputs',action:'inputs'},{label:'Live TV',icon:'tv',action:'live'},{label:'Settings',icon:'settings',app:'com.palm.app.settings'}]
@@ -263,6 +263,15 @@ function rgb2hsl(R,G,B){R/=255;G/=255;B/=255;var mx=Math.max(R,G,B),mn=Math.min(
 function hashHue(id){var h=0;for(var i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))%360;return h}
 /* What the icon looks like, from its alpha: 'full' (art reaches the edges), 'pad' (an opaque, roughly square picture with a transparent
    margin around it, as many LG icons are) or 'logo' (transparent gaps inside). box is the visible picture, as fractions of the image. */
+/* the colour of the four corners when all are opaque and alike (a picture on its own flat background), else null */
+function cornerColour(d,N){
+  var c=[[0,0],[N-3,0],[0,N-3],[N-3,N-3]].map(function(p){var R=0,G=0,B=0,n=0,a,b,j;
+    for(a=0;a<3;a++)for(b=0;b<3;b++){j=((p[1]+b)*N+p[0]+a)*4;if(d[j+3]>=230){R+=d[j];G+=d[j+1];B+=d[j+2];n++}}
+    return n===9?[R/9,G/9,B/9]:null});
+  if(!c.every(Boolean))return null;
+  var m=[0,1,2].map(function(i){return(c[0][i]+c[1][i]+c[2][i]+c[3][i])/4}),sp=0;
+  c.forEach(function(v){sp+=Math.abs(v[0]-m[0])+Math.abs(v[1]-m[1])+Math.abs(v[2]-m[2])});
+  return sp<45?[Math.round(m[0]),Math.round(m[1]),Math.round(m[2])]:null}
 function analyse(img){
   try{
     var N=64,cv=document.createElement('canvas');cv.width=cv.height=N;var x=cv.getContext('2d');x.drawImage(img,0,0,N,N);
@@ -282,7 +291,7 @@ function analyse(img){
       for(yy=0;yy<N;yy++)for(xx=0;xx<N;xx++){if(yy&&yy<N-1&&xx&&xx<N-1)continue;var j=(yy*N+xx)*4;if(d[j+3]>=230){ring.push(d[j],d[j+1],d[j+2]);sr+=d[j];sg+=d[j+1];sb+=d[j+2];n0++}}
       if(n0>0){var mr=sr/n0,mg=sg/n0,mb=sb/n0;for(var t0=0;t0<ring.length;t0+=3)q+=Math.abs(ring[t0]-mr)+Math.abs(ring[t0+1]-mg)+Math.abs(ring[t0+2]-mb);
         var st=strip(0,1),sb=strip(N-2,N-1),vert=st&&sb?Math.abs(st[0]-sb[0])+Math.abs(st[1]-sb[1])+Math.abs(st[2]-sb[2]):0;
-        if(q/n0/3>14||vert>40){x0=0;x1=N-1;return {k:'pad',box:[0,0,1,1],edge:[Math.round(mr),Math.round(mg),Math.round(mb)],top:strip(0,1),bot:strip(N-2,N-1)}}}}
+        if(q/n0/3>14||vert>40){x0=0;x1=N-1;var cm=cornerColour(d,N);return {k:'pad',box:[0,0,1,1],edge:cm||[Math.round(mr),Math.round(mg),Math.round(mb)],top:cm||strip(0,1),bot:cm||strip(N-2,N-1)}}}}
     if(k==='pad'){   // the picture's own border colour, from the outer two pixels of the visible box
       var R=0,G=0,B=0,n=0;
       for(yy=y0;yy<=y1;yy++)for(xx=x0;xx<=x1;xx++){if(yy-y0>1&&y1-yy>1&&xx-x0>1&&x1-xx>1)continue;var i=(yy*N+xx)*4;if(d[i+3]>=230){R+=d[i];G+=d[i+1];B+=d[i+2];n++}}
