@@ -153,15 +153,54 @@ function xmltvTime(s) {
   if (m[7]) { const sign = m[7][0] === '-' ? -1 : 1; t -= sign * (+m[7].slice(1, 3) * 60 + +m[7].slice(3, 5)) * 60000; }
   return Math.floor(t / 1000);
 }
-async function loadEpg(url, wantedIds) {
-  const stream = await get(url), want = new Set(wantedIds), byId = {};
-  const now = Math.floor(Date.now() / 1000), from = now - 3600, to = now + 36 * 3600;
-  let buf = '', cur = null, count = 0;
+// Names are compared without case, accents, a leading country code ("PL: ", "NL|"), quality words and punctuation:
+// "PL: TVP 1 HD", "TVP 1" and "tvp1" are the same channel.
+const QWORDS = /\b(?:uhd|fhd|hd|sd|4k|hevc|h265|raw)\b/g;
+const nameKey = s => {
+  let t = String(s || '').toLowerCase();
+  try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (_) {}
+  t = t.replace(/^\s*[a-z]{2}\s*[:|]\s*/, '').replace(/&/g, 'and').replace(QWORDS, ' ');
+  return t.replace(/[^a-z0-9]+/g, '');
+};
+// A gzip file is unpacked even when the server did not say Content-Encoding: gzip (an address ending in .gz).
+function unpackIfGzip(stream) {
+  return new Promise((resolve, reject) => {
+    stream.once('error', reject);
+    stream.once('data', first => {
+      stream.pause(); stream.unshift(first); stream.removeListener('error', reject);
+      if (first.length > 1 && first[0] === 0x1f && first[1] === 0x8b) {
+        const gz = stream.pipe(zlib.createGunzip());
+        stream.on('error', e => gz.destroy(e)); stream.on('aborted', () => gz.destroy(new Error('the connection was lost')));
+        resolve(gz);
+      } else resolve(stream);
+    });
+    stream.once('end', () => resolve(stream));
+  });
+}
+const attr = (tag, name) => { const m = tag.match(new RegExp('\\b' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')')); return m ? (m[1] !== undefined ? m[1] : m[2]) : null; };
+async function loadEpg(url, channels) {
+  const stream = await unpackIfGzip(await get(url)), byId = {}, map = {};
+  const want = new Set(channels.map(c => c.id).filter(Boolean)), byName = {};
+  for (const c of channels) { const k = nameKey(c.name); if (k) (byName[k] = byName[k] || []).push(c); }
+  const keep = new Set(want), now = Math.floor(Date.now() / 1000), from = now - 3600, to = now + 36 * 3600;
+  let buf = '', cur = null, chan = null, count = 0;
+  const closeChannel = () => {   // a guide channel that is none of the playlist's ids may still have the name of one
+    if (!chan) return;
+    if (!want.has(chan.id)) for (const n of chan.names) for (const c of byName[nameKey(n)] || []) { map[c.key] = chan.id; keep.add(chan.id); }
+    chan = null;
+  };
   const handle = line => {
     let m;
-    if ((m = line.match(/<programme\b[^>]*\bchannel="([^"]*)"[^>]*\bstart="([^"]*)"[^>]*\bstop="([^"]*)"/))) cur = want.has(m[1]) ? { id: m[1], s: xmltvTime(m[2]), e: xmltvTime(m[3]), t: '', d: '' } : null;
-    else if (cur && !cur.t && (m = line.match(/<title[^>]*>([^<]*)<\/title>/))) cur.t = decode(m[1]);
-    else if (cur && !cur.d && (m = line.match(/<desc[^>]*>([^<]*)<\/desc>/))) cur.d = decode(m[1]).slice(0, 220);
+    if (line.indexOf('<channel') >= 0 && (m = line.match(/<channel\b[^>]*>/)) && attr(m[0], 'id') !== null) { closeChannel(); chan = { id: attr(m[0], 'id'), names: [] }; }
+    if (chan && line.indexOf('<display-name') >= 0) line.replace(/<display-name[^>]*>([^<]*)<\/display-name>/g, (_, n) => { chan.names.push(decode(n)); return ''; });
+    if (chan && line.indexOf('</channel>') >= 0) closeChannel();
+    if ((m = line.match(/<programme\b[^>]*>/))) {
+      closeChannel();
+      const id = attr(m[0], 'channel'), st = attr(m[0], 'start'), sp = attr(m[0], 'stop');
+      cur = id !== null && st && sp && keep.has(id) ? { id, s: xmltvTime(st), e: xmltvTime(sp), t: '', d: '' } : null;
+    }
+    if (cur && !cur.t && (m = line.match(/<title[^>]*>([^<]*)<\/title>/))) cur.t = decode(m[1]);
+    if (cur && !cur.d && (m = line.match(/<desc[^>]*>([^<]*)<\/desc>/))) cur.d = decode(m[1]).slice(0, 220);
     if (cur && line.includes('</programme>')) {
       if (cur.e > from && cur.s < to && !/^no data$/i.test(cur.t.trim())) { (byId[cur.id] = byId[cur.id] || []).push(cur.d ? [cur.s, cur.e, cur.t, cur.d] : [cur.s, cur.e, cur.t]); count++; }
       cur = null;
@@ -176,9 +215,17 @@ async function loadEpg(url, wantedIds) {
     });
     let ended = false; stream.on('end', () => { ended = true; resolve(); }); stream.on('error', reject);
     stream.on('aborted', () => reject(new Error('the connection was lost'))); stream.on('close', () => { if (!ended) reject(new Error('the connection was closed')); });
+    stream.resume();
   });
   for (const id in byId) byId[id].sort((a, b) => a[0] - b[0]);
-  return { v: 3, fetchedAt: Date.now(), count, byId };
+  for (const k in map) if (!byId[map[k]]) delete map[k];
+  return { v: 4, fetchedAt: Date.now(), count, byId, map };
+}
+// An Xtream playlist (…/get.php?username=…&password=…) has its guide at xmltv.php on the same server.
+function derivedEpgUrl(playlistUrl) {
+  try { const u = new URL(playlistUrl); const us = u.searchParams.get('username'), pw = u.searchParams.get('password');
+    if (/\/get\.php$/i.test(u.pathname) && us && pw) return u.protocol + '//' + u.host + u.pathname.replace(/get\.php$/i, 'xmltv.php') + '?username=' + encodeURIComponent(us) + '&password=' + encodeURIComponent(pw); } catch (_) {}
+  return '';
 }
 
 let refreshing = false;
@@ -192,10 +239,10 @@ async function refresh(force) {
       writeJson(PLAYLIST, playlist);
     }
     status = { state: 'idle', error: '' };
-    const epgUrl = settings.epgUrl || playlist.epgUrl;
-    if (epgUrl && (force || !epg || epg.v !== 3 || Date.now() - epg.fetchedAt > REFRESH_MS)) {
+    const epgUrl = settings.epgUrl || playlist.epgUrl || derivedEpgUrl(settings.playlistUrl);
+    if (epgUrl && (force || !epg || epg.v !== 4 || Date.now() - epg.fetchedAt > REFRESH_MS)) {
       status = { state: 'loading guide', error: '' };
-      try { epg = await loadEpg(epgUrl, playlist.channels.map(c => c.id).filter(Boolean)); writeJson(EPG, epg); }
+      try { epg = await loadEpg(epgUrl, playlist.channels); writeJson(EPG, epg); }
       catch (e) { status = { state: 'idle', error: 'guide: ' + e.message }; }
     }
     if (status.state !== 'idle') status = { state: 'idle', error: status.error };
@@ -255,7 +302,7 @@ async function handle(req, res, u, body) {
   if (u === '/api/live/channels') {
     if (settings.playlistUrl && (!playlist || playlist.v !== 2)) refresh(false);
     // [number, id, name, group, logo, url, key, country, language, quality, flags, categories, other streams as [url, quality]]
-    return json(playlist ? { groups: playlist.groups, channels: playlist.channels.map(c => [c.num, c.id, c.name, c.group, c.logo, c.url, c.key || '', c.cc || '', c.lang || '', c.q || '', c.fl || 0, c.cats || [], (c.alt || []).map(a => [a.url, a.q || ''])]) } : { groups: [], channels: [] });
+    return json(playlist ? { groups: playlist.groups, channels: playlist.channels.map(c => [c.num, guideId(c), c.name, c.group, c.logo, c.url, c.key || '', c.cc || '', c.lang || '', c.q || '', c.fl || 0, c.cats || [], (c.alt || []).map(a => [a.url, a.q || ''])]) } : { groups: [], channels: [] });
   }
   if (u === '/api/live/epg') {
     const out = {}, now = Math.floor(Date.now() / 1000);
@@ -289,8 +336,11 @@ async function handle(req, res, u, body) {
   res.writeHead(404); res.end();
 }
 
+// the id the page asks the guide with: the playlist's own, or the guide channel found by name
+const guideId = c => (epg && epg.byId && epg.byId[c.id]) ? c.id : ((epg && epg.map && epg.map[c.key]) || c.id);
+
 // refresh once shortly after start (low priority), then twice a day
 if (settings.playlistUrl) setTimeout(() => refresh(false), 20000);
 setInterval(() => refresh(false), 6 * 3600 * 1000).unref();
 
-module.exports = { handle, parseM3U, probe };
+module.exports = { handle, parseM3U, probe, derivedEpgUrl, nameKey };
