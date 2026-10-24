@@ -74,6 +74,9 @@ const keyCode = () => String(((readConf().keys || {}).input) || '241');
 const voiceKey = () => { const v = readConf().voice || {}; return v.enabled && voice && voice.installed() ? String((readConf().keys || {}).voice || '') : ''; };
 const guideKey = () => options().liveTv !== false ? String((readConf().keys || {}).guide || '') : '';   // the Guide button belongs to LG unless Live TV is on and a button was learned
 let pickerShownAt = 0;
+// A hidden picker is only worth keeping when the Input key can open it: without the hook ("not available on this firmware") it would only
+// sit there holding the remote.
+const hookAttached = () => { try { return !!(inputhook.hookInfo && inputhook.hookInfo().attached); } catch (_) { return false; } };
 // The on-demand picker asks to be closed when it is dismissed. Closing from the page does nothing on some builds, so the app manager does
 // it: closeByAppId is the call that works on webOS 6, plain close the fallback.
 async function closePicker() {
@@ -172,6 +175,6 @@ http.createServer(async (req, res) => {
   // Input key: bind it and keep the hook in LG's input processes (they restart now and then)
   setTimeout(() => inputhook.ensure(inputKeyOn(), keyCode()), 500);
   setInterval(() => inputhook.ensure(inputKeyOn(), keyCode()), 30000);
-  try { require('./picker').start(luna, () => options().inputKey && pickerMode() === 'overlay', { get: () => readConf().picker || {}, set: v => { const c = readConf(); c.picker = v; writeConf(c); syncPickerMode(); } }); } catch (e) { console.error('picker module failed:', e.message); }
+  try { require('./picker').start(luna, () => options().inputKey && pickerMode() === 'overlay' && hookAttached(), { get: () => readConf().picker || {}, set: v => { const c = readConf(); c.picker = v; writeConf(c); syncPickerMode(); } }); } catch (e) { console.error('picker module failed:', e.message); }
   if (manager) setTimeout(() => manager.check(), 60000);
 });

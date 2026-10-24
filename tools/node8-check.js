@@ -288,7 +288,8 @@ const fake = (url, method) => { const res = { code: 0, out: '', writeHead(c) { t
   ok(pkLaunches === 4 && pkSaved.prewarm === undefined, 'a start every quarter of an hour (standby, wake) is normal and stays on');
   pkTick = pkMake(); pkSaved = { prewarm: true }; await pkTick(); ok(pkLaunches === 1, 'switching it back on in the manager starts it again');
 
-  ok(pickerMod.modeOf({}, 10) === 'overlay' && pickerMod.modeOf({}, 25) === 'overlay' && pickerMod.modeOf({}, 6) === 'ondemand' && pickerMod.modeOf({}, 0) === 'ondemand', 'the picker is kept ready on webOS 10 and newer and started when pressed before that');
+  ok(pickerMod.modeOf({}, 10) === 'overlay' && pickerMod.modeOf({}, 6) === 'ondemand' && pickerMod.modeOf({}, 0) === 'ondemand', 'the picker is kept ready on webOS 25 (SDK 10) and started when pressed before that');
+  ok(pickerMod.modeOf({}, 11) === 'ondemand' && pickerMod.modeOf({}, 12) === 'ondemand', 'SDK 11 and newer, where the hidden picker has not been tried, start it when pressed (issue 6)');
   ok(pickerMod.modeOf({ mode: 'overlay' }, 6) === 'overlay' && pickerMod.modeOf({ mode: 'launcher' }, 25) === 'launcher' && pickerMod.modeOf({ mode: 'ondemand' }, 25) === 'ondemand' && pickerMod.modeOf({ mode: 'x' }, 6) === 'ondemand', 'a saved choice wins over the default');
   pkTick = pkMake(); pkRunning = []; await pkTick(); pkClock += 40000; await pkTick(); pkClock += 40000; await pkTick(); pkClock += 40000; await pkTick();
   ok(pkSaved.mode === 'ondemand' && pkSaved.prewarm === false, 'when the system keeps closing the picker it is started when pressed instead');
